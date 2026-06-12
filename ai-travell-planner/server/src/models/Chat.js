@@ -2,8 +2,8 @@ import mongoose from "mongoose";
 
 const messageSchema = new mongoose.Schema(
   {
-    role: { type: String, enum: ["user", "assistant", "system"], required: true },
-    content: { type: String, required: true },
+    role:     { type: String, enum: ["user", "assistant", "system"], required: true },
+    content:  { type: String, required: true },
     metadata: { type: mongoose.Schema.Types.Mixed }
   },
   { timestamps: true }
@@ -11,20 +11,16 @@ const messageSchema = new mongoose.Schema(
 
 const chatSchema = new mongoose.Schema(
   {
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    title: { type: String, default: "New trip plan" },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User",  required: true, index: true },
+    tripId: { type: mongoose.Schema.Types.ObjectId, ref: "Trip",  index: true },   // ← NEW
+    title:  { type: String, default: "New trip plan" },
     shortTermMemory: {
-      destination: String,
-      travelDates: String,
-      budget: String,
-      preferences: [{
-        travelStyle: String,
-        preferredBudgetCurrency: String,
-        hotelPreference: String,
-        foodPreference: String,
-        pace: String,
-        languages: [String]
-      }]
+      destination:   String,
+      origin:        String,
+      departureDate: String,
+      returnDate:    String,
+      budget:        String,
+      preferences:   [String]
     },
     messages: [messageSchema]
   },

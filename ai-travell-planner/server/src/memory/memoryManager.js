@@ -26,7 +26,9 @@ export async function updateShortTermMemory({ chatId, patch }) {
     // Build a $set that only touches the keys present in patch
   const setFields = {};
   for (const [key, value] of Object.entries(patch)) {
-    setFields[`shortTermMemory.${key}`] = value;
+      if (value !== undefined && value !== null) {
+      setFields[`shortTermMemory.${key}`] = value;
+    }
   }
   return Chat.findByIdAndUpdate(chatId, { $set: setFields }, { new: true });
 }

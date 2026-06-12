@@ -1,11 +1,12 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Compass, LogOut, MessageSquare, Plane, UserRound } from "lucide-react";
+import { Compass, LogOut, MessageSquare, Plane, PlusCircle, UserRound } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const nav = [
-  { to: "/app/chat", label: "AI Chat", icon: MessageSquare },
-  { to: "/app/trips", label: "Saved Trips", icon: Plane },
-  { to: "/app/profile", label: "Profile", icon: UserRound }
+  { to: "/app/plan",    label: "Plan Trip",    icon: PlusCircle },
+  { to: "/app/chat",    label: "AI Chat",      icon: MessageSquare },
+  { to: "/app/trips",   label: "Saved Trips",  icon: Plane },
+  { to: "/app/profile", label: "Profile",      icon: UserRound }
 ];
 
 export default function AppLayout() {

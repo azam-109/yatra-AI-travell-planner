@@ -6,9 +6,10 @@ import AuthPage from "./pages/AuthPage.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import ProfilePage from "./pages/ProfilePage.jsx";
+import TripFormPage from "./pages/TripFormPage.jsx";
 
 export const router = createBrowserRouter([
-  { path: "/", element: <LandingPage /> },
+  { path: "/",     element: <LandingPage /> },
   { path: "/auth", element: <AuthPage /> },
   {
     path: "/app",
@@ -18,10 +19,12 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
     children: [
-      { index: true, element: <Navigate to="/app/chat" replace /> },
-      { path: "chat", element: <ChatPage /> },
-      { path: "trips", element: <DashboardPage /> },
-      { path: "profile", element: <ProfilePage /> }
+      { index: true,         element: <Navigate to="/app/chat" replace /> },
+      { path: "plan",        element: <TripFormPage /> },
+      { path: "chat",        element: <ChatPage /> },
+      { path: "chat/:tripId",element: <ChatPage /> },
+      { path: "trips",       element: <DashboardPage /> },
+      { path: "profile",     element: <ProfilePage /> }
     ]
   }
 ]);

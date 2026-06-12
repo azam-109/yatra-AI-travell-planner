@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Link2, Trash2 } from "lucide-react";
 import { api } from "../services/api.js";
 import LoadingSkeleton from "../components/LoadingSkeleton.jsx";
@@ -54,6 +55,11 @@ export default function DashboardPage() {
                 </button>
                 <button title="Delete" onClick={() => removeTrip(trip._id)} className="grid h-9 w-9 place-items-center rounded bg-red-50 text-red-700">
                   <Trash2 size={16} />
+                </button>
+                <button onClick={() => navigate(`/app/chat/${trip._id}`, {
+                  state: { tripSpec: trip.tripSpec, chatId: trip.chatId }
+                })}>
+                  Open Chat
                 </button>
               </div>
             </div>
