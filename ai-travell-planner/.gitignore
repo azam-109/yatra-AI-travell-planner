@@ -1,9 +1,0 @@
-node_modules
-dist
-build
-.env
-.env.example
-.env.local
-.DS_Store
-npm-debug.log*
-coverage

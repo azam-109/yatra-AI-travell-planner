@@ -18,7 +18,7 @@ export default function VoiceInputButton({ onTranscript }) {
       type="button"
       title="Voice input"
       onClick={startVoice}
-      className="grid h-11 w-11 place-items-center rounded bg-slate-100 text-slate-700 hover:bg-slate-200"
+      className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/80 transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/30 hover:bg-white/10 hover:text-white"
     >
       <Mic size={18} />
     </button>

@@ -73,38 +73,94 @@ function fallbackHotels({ destination, toolResult, error }) {
 }
 
 export async function runHotelAgent(state) {
+  const dest        = state.tripSpec?.destination || "the destination";
+  const budgetNum   = Number(state.tripSpec?.budget);
+  const budgetStr   = Number.isFinite(budgetNum) && budgetNum > 0
+    ? `₹${budgetNum.toLocaleString("en-IN")} total trip budget`
+    : state.tripSpec?.budgetTier || "mid-range";
+  const travelers   = state.tripSpec?.travelers || 1;
+  const nights      = state.tripSpec?.durationDays || 3;
+  const hotelRating = state.tripSpec?.hotelRating  || "";
+  const ratingStr   = hotelRating ? `${hotelRating}-star` : "good quality";
+  const checkIn     = state.tripSpec?.departureDate || "";
+  const checkOut    = state.tripSpec?.returnDate    || "";
+
   let toolResult = "";
   try {
+    // Include India + budget tier + rating in query to avoid irrelevant international results
+    const query = [
+      `best ${ratingStr} hotels in ${dest} India`,
+      budgetStr,
+      checkIn ? `check-in ${checkIn}` : "",
+      `${travelers} guest${travelers > 1 ? "s" : ""}`,
+      "price per night INR rupees booking",
+      state.tripSpec?.budgetTier === "budget" ? "budget guesthouse hostel" : "",
+      state.tripSpec?.budgetTier === "luxury" ? "luxury resort 5 star" : "",
+    ].filter(Boolean).join(" ");
+
     toolResult = await hotelSearchTool.invoke({
-      destination: state.tripSpec.destination,
-      budget: state.tripSpec.budget,
-      preferences:
-        typeof state.userPreferences === "object"
-        ? JSON.stringify(state.userPreferences)
-        : state.userPreferences
+      destination: `${dest} India`,
+      budget:      budgetStr,
+      preferences: query
     });
   } catch (error) {
-    return { hotels: fallbackHotels({ destination: state.tripSpec.destination, toolResult, error }) };
+    return { hotels: fallbackHotels({ destination: dest, toolResult, error }) };
   }
 
   const prompt = PromptTemplate.fromTemplate(`
-You are the Hotel Agent. Convert search results into bookable-style recommendations.
+You are the Hotel Agent for an Indian travel app. Your job: recommend REAL hotels in {destination}, India only.
+
+STRICT RULES:
+- ONLY recommend hotels physically located in {destination}, India.
+- ALL prices MUST be in Indian Rupees (₹). Never use USD, EUR, or any other currency.
+- Budget: {budgetStr} for {travelers} traveler(s), {nights} nights.
+- Preferred rating: {ratingStr} hotels.
+- Check-in: {checkIn} | Check-out: {checkOut}
+- If the search results contain any hotels outside India, COMPLETELY IGNORE them.
+- Use REAL hotel names from the search results where available.
+- If no real Indian hotel names appear in results, invent plausible well-known hotel chains in {destination} (e.g. OYO, Treebo, Zostel, FabHotel, Lemon Tree, ibis).
 
 User request:
 {prompt}
 
-Hotel search output:
+Tavily hotel search results for {destination} India:
 {toolResult}
 
-Return strict JSON with:
-hotelSummary, options[] with name/location/rating/priceRange/reason, estimatedTotal, assumptions[], warnings[].
+Return ONLY valid JSON (no markdown, no code fences):
+{{
+  "hotelSummary": "2-sentence summary of hotel options in {destination}",
+  "options": [
+    {{
+      "name": "Exact hotel name in {destination}",
+      "location": "Neighbourhood or area in {destination}, e.g. Calangute, North Goa",
+      "rating": "3-star / 4-star / etc.",
+      "priceRange": "₹X,XXX – ₹X,XXX per night",
+      "reason": "Why this suits the traveler’s budget and preferences"
+    }}
+  ],
+  "estimatedTotal": "₹X,XXX for {nights} nights (estimated)",
+  "assumptions": ["Prices are estimates; verify on Booking.com or MakeMyTrip."],
+  "warnings": []
+}}
+
+Provide 3-4 hotel options covering budget to mid-range in {destination}.
 `);
 
-  const chain = RunnableSequence.from([prompt, createGroqModel({ temperature: 0.25 }), parser]);
+  const chain = RunnableSequence.from([prompt, createGroqModel({ temperature: 0.2 }), parser]);
   try {
-    const hotels = await chain.invoke({ prompt: state.prompt, toolResult });
+    const hotels = await chain.invoke({
+      prompt:      state.prompt,
+      toolResult,
+      destination: dest,
+      budgetStr,
+      travelers:   String(travelers),
+      nights:      String(nights),
+      ratingStr,
+      checkIn:     checkIn  || "flexible",
+      checkOut:    checkOut || "flexible",
+    });
     return { hotels };
   } catch (error) {
-    return { hotels: fallbackHotels({ destination: state.tripSpec.destination, toolResult, error }) };
+    return { hotels: fallbackHotels({ destination: dest, toolResult, error }) };
   }
 }

@@ -4,89 +4,168 @@ import { RunnableSequence } from "@langchain/core/runnables";
 import { createGroqModel } from "../config/llm.js";
 import { tavilySearch } from "../services/tavilyService.js";
 import { getWeatherContext } from "../services/weatherService.js";
+import { logger } from "../utils/logger.js";
 
+const LABEL = "itineraryAgent";
 const parser = new JsonOutputParser();
 
-function fallbackItinerary(state, travelSearch = {}, weather = null, error = null) {
-  const durationDays = state.tripSpec.durationDays || 7;
-  const highlights = (travelSearch.results || [])
-    .slice(0, durationDays)
-    .map((result) => result.title)
-    .filter(Boolean);
+function formatBudget(budget) {
+  if (!budget) return "flexible budget";
+  const num = Number(String(budget).replace(/[^0-9.]/g, ""));
+  return isNaN(num) || num === 0 ? "flexible budget" : `₹${num.toLocaleString("en-IN")} total`;
+}
 
-  const dailyPlan = Array.from({ length: durationDays }, (_, index) => ({
-    day: index + 1,
-    theme: highlights[index] || `${state.tripSpec.destination} highlights`,
-    morning: "Start with a major landmark or neighborhood walk.",
-    afternoon: "Visit a museum, temple, market, viewpoint, or local cultural area.",
-    evening: "Explore a food street, shopping district, or relaxed scenic area.",
-    food: "Prioritize local restaurants near the day's route.",
-    transport: "Use public transport and group nearby attractions together.",
-    budgetNotes: "Keep paid attractions selective and balance them with free neighborhoods, gardens, and markets."
+function fallbackItinerary(state, travelSearch = {}, weather = null, error = null) {
+  const dest        = state.tripSpec?.destination || "the destination";
+  const durationDays = state.tripSpec?.durationDays || 5;
+
+  const dailyPlan = Array.from({ length: durationDays }, (_, i) => ({
+    day:         i + 1,
+    theme:       `Day ${i + 1} in ${dest}`,
+    morning:     "Visit a major landmark or neighbourhood.",
+    afternoon:   "Explore a local market, temple, or cultural site.",
+    evening:     "Try local street food and evening walk.",
+    food:        `Local cuisine in ${dest}`,
+    transport:   "Auto-rickshaw or local bus",
+    budgetNotes: "₹500–₹1,000 per day excluding accommodation"
   }));
 
   return {
-    destination: state.tripSpec.destination,
+    destination: dest,
     durationDays,
     dailyPlan,
     budgetBreakdown: {
-      flights: "Depends on origin and dates",
-      hotels: "Use selected hotel rates",
-      food: "Moderate local dining",
-      transport: "Public transport passes where useful",
-      sightseeing: "Mix paid and free attractions"
+      flights:     "Depends on route and dates",
+      hotels:      "See hotel agent results",
+      food:        "₹300–₹600 per day",
+      transport:   "₹200–₹500 per day",
+      sightseeing: "₹200–₹800 per day"
     },
-    optimizationTips: ["Book intercity trains and popular attractions early.", "Group sights by area to reduce daily transport cost."],
+    optimizationTips: [
+      "Book trains/buses in advance on IRCTC or redBus.",
+      "Group nearby attractions to save on transport."
+    ],
     weather,
-    assumptions: ["Fallback itinerary used because structured itinerary generation was unavailable."],
+    assumptions: ["Fallback itinerary — live search unavailable."],
     warnings: error ? [error.message] : []
   };
 }
 
 export async function runItineraryAgent(state) {
-  let travelSearch = {};
-  let weather = null;
-  try {
-    [travelSearch, weather] = await Promise.all([
-      tavilySearch(`${state.tripSpec.destination} best attractions food transport itinerary budget tips`, {
-        maxResults: 8
-      }),
-      getWeatherContext(state.tripSpec.destination)
-    ]);
-  } catch (error) {
-    return { itinerary: fallbackItinerary(state, travelSearch, weather, error) };
+  const dest        = state.tripSpec?.destination;
+  const durationDays = state.tripSpec?.durationDays || 5;
+  const budgetStr   = formatBudget(state.tripSpec?.budget);
+  const interests   = (state.tripSpec?.interests || []).join(", ") || "general sightseeing";
+
+  logger.info(LABEL, "Starting itinerary generation", {
+    destination: dest,
+    durationDays,
+    budgetStr,
+    interests
+  });
+
+  if (!dest) {
+    return { itinerary: fallbackItinerary(state, {}, null, new Error("No destination in tripSpec")) };
   }
 
-  const prompt = PromptTemplate.fromTemplate(`
-You are the Itinerary Agent. Build a day-wise itinerary optimized for budget, transport, local food, and travel pace.
+  let travelSearch = {};
+  let weather      = null;
 
-User request:
-{prompt}
+  try {
+    const searchQuery = [
+      `${dest} India tourist attractions places to visit`,
+      interests !== "general sightseeing" ? interests : "",
+      `₹ budget travel tips local food transport`,
+      "2025 itinerary guide"
+    ].filter(Boolean).join(" ");
 
-Personalized memories:
-{memory}
+    logger.info(LABEL, "Tavily search query", { searchQuery });
 
-Destination research:
+    [travelSearch, weather] = await Promise.all([
+      tavilySearch(searchQuery, { maxResults: 8 }),
+      getWeatherContext(dest)
+    ]);
+
+    logger.info(LABEL, "Search complete", {
+      resultCount: travelSearch?.results?.length ?? 0,
+      hasWeather:  Boolean(weather)
+    });
+  } catch (error) {
+    logger.error(LABEL, "Search failed — using fallback", { message: error.message });
+    return { itinerary: fallbackItinerary(state, {}, null, error) };
+  }
+
+  const itineraryPrompt = PromptTemplate.fromTemplate(`
+You are an expert Indian travel planner creating a day-by-day itinerary.
+
+STRICT RULES — follow every one:
+- Destination: {destination}, INDIA ONLY
+- Duration: {durationDays} days
+- Total budget: {budgetStr} (ALL costs in Indian Rupees ₹)
+- Interests: {interests}
+- Only recommend real places, restaurants, and activities IN {destination}, India
+- Do NOT mention any place outside {destination} India
+- If search results mention foreign locations, IGNORE them entirely
+- Budget breakdown must add up to approximately {budgetStr}
+
+User request: {prompt}
+
+Research about {destination}:
 {travelSearch}
 
 Weather context:
 {weather}
 
-Return strict JSON with:
-destination, durationDays, dailyPlan[] where each day has day/theme/morning/afternoon/evening/food/transport/budgetNotes,
-budgetBreakdown, optimizationTips[], assumptions[].
+Return ONLY valid JSON (no markdown, no code fences):
+{{
+  "destination": "{destination}",
+  "durationDays": {durationDays},
+  "dailyPlan": [
+    {{
+      "day": 1,
+      "theme": "descriptive theme for the day",
+      "morning": "specific morning activity with real location name in {destination}",
+      "afternoon": "specific afternoon activity with real location name",
+      "evening": "evening activity or dining spot in {destination}",
+      "food": "specific local dish or restaurant name in {destination}",
+      "transport": "how to travel today in {destination} with ₹ cost",
+      "budgetNotes": "estimated total spend for this day in ₹"
+    }}
+  ],
+  "budgetBreakdown": {{
+    "flights": "₹X (estimated Delhi-{destination} return)",
+    "hotels": "₹X per night x {durationDays} nights",
+    "food": "₹X per day x {durationDays} days",
+    "transport": "₹X total local transport",
+    "sightseeing": "₹X total entry fees and activities"
+  }},
+  "optimizationTips": ["specific tip 1", "specific tip 2", "specific tip 3"],
+  "assumptions": ["assumption 1"],
+  "warnings": []
+}}
 `);
 
-  const chain = RunnableSequence.from([prompt, createGroqModel({ temperature: 0.45 }), parser]);
+  const chain = RunnableSequence.from([
+    itineraryPrompt,
+    createGroqModel({ temperature: 0.3 }),
+    parser
+  ]);
+
   try {
+    logger.info(LABEL, "Sending to LLM");
     const itinerary = await chain.invoke({
-      prompt: state.prompt,
-      memory: state.contextualMemory || "No prior memory found.",
+      prompt:       state.prompt,
+      destination:  dest,
+      durationDays: String(durationDays),
+      budgetStr,
+      interests,
       travelSearch: JSON.stringify(travelSearch),
-      weather: JSON.stringify(weather || {})
+      weather:      JSON.stringify(weather || {})
     });
+    logger.info(LABEL, "Itinerary generated", { days: itinerary?.dailyPlan?.length ?? 0 });
     return { itinerary };
   } catch (error) {
+    logger.error(LABEL, "LLM failed — using fallback", { message: error.message });
     return { itinerary: fallbackItinerary(state, travelSearch, weather, error) };
   }
 }

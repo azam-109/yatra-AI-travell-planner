@@ -136,6 +136,9 @@ export async function runFlightAgent(state) {
     durationDays:  tripSpec?.durationDays
   });
 
+
+
+
   // ── 2. Convert city names → IATA codes ───────────────────────────────────
   const originIata      = toIataCode(tripSpec?.origin);
   const destinationIata = toIataCode(tripSpec?.destination);
@@ -154,6 +157,14 @@ export async function runFlightAgent(state) {
   }
 
   // ── 4. Call AviationStack ─────────────────────────────────────────────────
+  console.log("Flight Search Input:", {
+    origin: state.tripSpec?.origin,
+    destination: state.tripSpec?.destination,
+    departureDate: state.tripSpec?.departureDate,
+    returnDate: state.tripSpec?.returnDate
+  });
+
+
   let rawResult;
   try {
     logger.info(LABEL, "Calling searchFlights", {
@@ -191,16 +202,27 @@ export async function runFlightAgent(state) {
     // Still pass through the mock to the LLM so the response is coherent
   }
 
-  // ── 6. Handle empty result from AviationStack ─────────────────────────────
+  // ── 6. Handle 0 live flights (free plan only shows airborne flights) ────────
   const optionCount = rawResult?.options?.length ?? 0;
-  if (rawResult?.source === "aviationstack" && optionCount === 0) {
-    logger.warn(LABEL, "AviationStack returned 0 flights", {
-      origin:        originIata,
-      destination:   destinationIata,
-      departureDate: tripSpec?.departureDate
+  const noLiveFlights =
+    rawResult?.source === "aviationstack_no_live_flights" ||
+    (rawResult?.source === "aviationstack" && optionCount === 0);
+
+  if (noLiveFlights) {
+    // Free AviationStack plan only returns live/airborne flights, not scheduled future ones.
+    // Replace with an LLM-estimate stub so the LLM generates realistic pricing guidance.
+    logger.warn(LABEL, "No live AviationStack flights — switching to LLM estimate mode", {
+      origin:      originIata,
+      destination: destinationIata,
     });
-    // Return fallback with a specific reason rather than silently passing empty data
-    return { flights: fallbackFlights(state, JSON.stringify(rawResult), null) };
+    rawResult = {
+      source:        "llm_estimate",
+      origin:        tripSpec?.origin        || originIata,
+      destination:   tripSpec?.destination   || destinationIata,
+      departureDate: tripSpec?.departureDate,
+      returnDate:    tripSpec?.returnDate,
+      note: "AviationStack free plan only tracks live airborne flights, not scheduled future departures. Prices below are LLM estimates based on typical route fares. Verify on MakeMyTrip, IndiGo, Air India, or SpiceJet before booking."
+    };
   }
 
   // ── 7. Ask the LLM to format the structured result ────────────────────────
@@ -213,12 +235,23 @@ Use the flight API output and user request to present practical flight options.
 User request:
 {prompt}
 
+Trip details:
+- Route: {origin} → {destination}
+- Departure: {departureDate}
+- Return: {returnDate}
+- Flight class: {flightClass}
+- Travelers: {travelers}
+- Budget: {budget}
+
 Flight API output (source: {source}):
 {toolResult}
 
 Instructions:
-- If source is "mock", explain that live flight data requires an AviationStack API key and provide guidance on what to expect.
-- If source is "aviationstack", summarise the real flights returned.
+- If source is "mock", explain that live flight data requires an AviationStack API key.
+- If source is "aviationstack", summarise the real live flights returned.
+- If source is "llm_estimate", IGNORE the toolResult data field. Instead, USE YOUR KNOWLEDGE to generate realistic flight options for the route {origin} to {destination} on {departureDate}. Include real Indian airlines: IndiGo, Air India, SpiceJet, Vistara, Akasa Air. Provide realistic INR prices for the route.
+- Filter/prioritise options matching the requested flight class ({flightClass}) and travelers ({travelers}).
+- ALL prices MUST be in Indian Rupees (₹). Never use USD or other currencies.
 - Always return valid JSON — no markdown, no code fences.
 
 Return JSON matching exactly:
@@ -236,9 +269,16 @@ Return JSON matching exactly:
   try {
     logger.info(LABEL, "Sending flight data to LLM for formatting");
     const flights = await chain.invoke({
-      prompt:     state.prompt,
-      source:     rawResult.source,
-      toolResult
+      prompt:        state.prompt,
+      source:        rawResult.source,
+      toolResult,
+      origin:        tripSpec?.origin        || "origin",
+      destination:   tripSpec?.destination   || "destination",
+      departureDate: tripSpec?.departureDate || "not specified",
+      returnDate:    tripSpec?.returnDate    || "not specified",
+      flightClass:   tripSpec?.flightClass   || "economy",
+      travelers:     String(tripSpec?.travelers || 1),
+      budget:        tripSpec?.budget ? `₹${Number(tripSpec.budget).toLocaleString("en-IN")}` : "flexible"
     });
     logger.info(LABEL, "LLM formatted flight options", {
       optionCount: flights?.options?.length ?? 0

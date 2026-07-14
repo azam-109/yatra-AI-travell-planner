@@ -23,13 +23,17 @@ export const createTripFromForm = asyncHandler(async (req, res) => {
     title:  `${origin} → ${destination}`
   });
 
+  const budgetNumber = Number(budget);
+
   // 2. Create the Trip record with full tripSpec
   //    finalResponse is empty — agents fill it in later via socket
   const trip = await Trip.create({
     userId:      req.user._id,
     chatId:      chat._id,
     destination,
-    budget:      budget ? `₹${Number(budget).toLocaleString("en-IN")}` : "Flexible",
+    budget:Number.isFinite(budgetNumber) && budgetNumber > 0
+    ? `₹${budgetNumber.toLocaleString("en-IN")}`
+    : "Flexible",
     tripSpec: {
       origin,
       destination,

@@ -20,7 +20,7 @@ const chatSchema = new mongoose.Schema(
       departureDate: String,
       returnDate:    String,
       budget:        String,
-      preferences:   [String]
+      preferences:   [mongoose.Schema.Types.Mixed]
     },
     messages: [messageSchema]
   },

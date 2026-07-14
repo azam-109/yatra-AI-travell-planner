@@ -76,12 +76,34 @@ export function registerTravelSocket(io) {
 
         const graph = createTravelGraph();
 
+        // Build a rich natural-language prompt embedding all form fields so the
+        // LLM has full context (avoids relying on regex extraction from a bare string).
+        function buildAutoPrompt(spec) {
+          if (!spec) return prompt;
+          const parts = [`Plan a complete trip from ${spec.origin} to ${spec.destination}`];
+          if (spec.durationDays)  parts.push(`for ${spec.durationDays} days`);
+          if (spec.departureDate) parts.push(`departing on ${spec.departureDate}`);
+          if (spec.returnDate)    parts.push(`returning on ${spec.returnDate}`);
+          if (spec.budget)        parts.push(`with a total budget of \u20b9${Number(spec.budget).toLocaleString("en-IN")}`);
+          if (spec.budgetTier)    parts.push(`(${spec.budgetTier} tier)`);
+          if (spec.travelers && spec.travelers > 1) parts.push(`for ${spec.travelers} travelers`);
+          if (spec.travelStyle)   parts.push(`travelling as ${spec.travelStyle}`);
+          if (spec.flightClass)   parts.push(`in ${spec.flightClass} class`);
+          if (spec.interests?.length) parts.push(`with interests in ${spec.interests.join(", ")}`);
+          if (spec.hotelRating)   parts.push(`preferring ${spec.hotelRating}-star hotels`);
+          if (spec.dietary)       parts.push(`dietary preference: ${spec.dietary}`);
+          if (spec.specialRequirements) parts.push(`special requirements: ${spec.specialRequirements}`);
+          return parts.join(", ") + ".";
+        }
+
+        const resolvedPrompt = prompt || buildAutoPrompt(tripSpec);
+
         const result = await graph.invoke(
           {
             userId: socket.user._id,
             chatId: chat._id,
-            prompt: prompt || `Plan a complete trip from ${tripSpec?.origin} to ${tripSpec?.destination}`,
-            tripSpec:    tripSpec || null, 
+            prompt: resolvedPrompt,
+            tripSpec:    tripSpec || null,
             userPreferences: socket.user.preferences || {},
           },
           {
@@ -119,6 +141,11 @@ export function registerTravelSocket(io) {
           }
         }
 
+        console.log("🚀 Emitting travel:complete with result keys:", Object.keys(result || {}));
+        console.log("🚀 Result flights:", result?.flights ? "✓ present" : "✗ missing");
+        console.log("🚀 Result hotels:", result?.hotels ? "✓ present" : "✗ missing");
+        console.log("🚀 Result itinerary:", result?.itinerary ? "✓ present" : "✗ missing");
+        
         socket.emit("travel:complete", {
           chatId: chat._id,
           trip,
