@@ -10,7 +10,9 @@ import { connectDb } from "./config/db.js";
 import { config } from "./config/env.js";
 import { registerTravelSocket } from "./services/socketService.js";
 
+// wraps the express server inside a http
 const server = http.createServer(app);
+//now attach the socket.io server to the http server   
 const io = new Server(server, {
   cors: {
     origin: config.clientOrigin,
